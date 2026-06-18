@@ -1,0 +1,23 @@
+{
+  "name": "pi-commit-planner",
+  "version": "0.1.0",
+  "description": "A pi extension that plans one or more Git commits from current working tree changes and asks for confirmation before applying them.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "scripts": {
+    "check": "echo 'Smoke test with: pi --no-session --no-context-files --no-extensions --extension . -p /commit'"
+  }
+}
