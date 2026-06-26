@@ -6,8 +6,6 @@ import type { CommitPlan, RepoSnapshot } from "./types.ts";
 import { summarizePathList } from "./utils.ts";
 
 const STATUS_KEY = "pi-commit-planner";
-const CONVENTIONAL_COMMITS_FEEDBACK =
-	"Prefer Conventional Commits across the whole plan. Use type(scope): subject when a scope helps.";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -52,10 +50,9 @@ async function reviewPlan(
 	ctx: ExtensionCommandContext,
 	plan: CommitPlan,
 	snapshot: RepoSnapshot,
-	options?: { preferConventionalCommits?: boolean },
 ): Promise<ReviewAction> {
 	if (ctx.mode === "tui") {
-		return reviewPlanCustomUi(ctx, plan, snapshot, options);
+		return reviewPlanCustomUi(ctx, plan, snapshot);
 	}
 
 	const confirmed = await ctx.ui.confirm(
@@ -68,31 +65,15 @@ async function reviewPlan(
 	return choice === "Replan with feedback" ? "replan" : "cancel";
 }
 
-async function collectReplanFeedback(
-	ctx: ExtensionCommandContext,
-	preferConventionalCommits: boolean,
-): Promise<{ feedback?: string; preferConventionalCommits?: boolean } | undefined> {
-	const choices = ["Write custom feedback"];
-	if (!preferConventionalCommits) {
-		choices.push("Prefer Conventional Commits");
-	}
-	choices.push("Back");
-
-	const choice = await ctx.ui.select("How should the planner revise this plan?", choices);
+async function collectReplanFeedback(ctx: ExtensionCommandContext): Promise<string | undefined> {
+	const choice = await ctx.ui.select("How should the planner revise this plan?", ["Write custom feedback", "Back"]);
 	if (!choice || choice === "Back") {
 		ctx.ui.notify("Keeping the current plan.", "info");
 		return undefined;
 	}
 
-	if (choice === "Prefer Conventional Commits") {
-		return {
-			feedback: CONVENTIONAL_COMMITS_FEEDBACK,
-			preferConventionalCommits: true,
-		};
-	}
-
 	ctx.ui.notify(
-		"Describe how the plan should change. Example: reduce to two commits, keep tests with implementation, or separate specific hunks.",
+		"Describe how the plan should change. Example: reduce to two commits, keep tests with implementation, or separate specific hunks. Commit messages will stay in Conventional Commits format and plan explanations will stay in English.",
 		"info",
 	);
 
@@ -108,7 +89,7 @@ async function collectReplanFeedback(
 		return undefined;
 	}
 
-	return { feedback: trimmed };
+	return trimmed;
 }
 
 export default function commitPlannerExtension(pi: ExtensionAPI) {
@@ -147,18 +128,13 @@ export default function commitPlannerExtension(pi: ExtensionAPI) {
 
 				let snapshotSignature = buildSnapshotSignature(snapshot);
 				let feedbackHistory: string[] = [];
-				let preferConventionalCommits = false;
 
 				ctx.ui.setStatus(STATUS_KEY, `Planning commits for ${snapshot.units.length} change unit(s)...`);
-				let plan = await planCommits(ctx, snapshot, {
-					preferConventionalCommits,
-				});
+				let plan = await planCommits(ctx, snapshot);
 
 				while (true) {
 					ctx.ui.setStatus(STATUS_KEY, undefined);
-					const action = await reviewPlan(ctx, plan, snapshot, {
-						preferConventionalCommits,
-					});
+					const action = await reviewPlan(ctx, plan, snapshot);
 
 					if (action === "cancel") {
 						ctx.ui.notify("Commit cancelled", "info");
@@ -166,22 +142,18 @@ export default function commitPlannerExtension(pi: ExtensionAPI) {
 					}
 
 					if (action === "replan") {
-						const replanRequest = await collectReplanFeedback(ctx, preferConventionalCommits);
-						if (!replanRequest) {
+						const feedback = await collectReplanFeedback(ctx);
+						if (!feedback) {
 							continue;
 						}
 
-						if (replanRequest.preferConventionalCommits) {
-							preferConventionalCommits = true;
-						}
-						if (replanRequest.feedback && !feedbackHistory.includes(replanRequest.feedback)) {
-							feedbackHistory = [...feedbackHistory, replanRequest.feedback];
+						if (!feedbackHistory.includes(feedback)) {
+							feedbackHistory = [...feedbackHistory, feedback];
 						}
 						ctx.ui.setStatus(STATUS_KEY, `Replanning with feedback (${feedbackHistory.length})...`);
 						plan = await planCommits(ctx, snapshot, {
 							previousPlan: plan,
 							feedbackHistory,
-							preferConventionalCommits,
 						});
 						continue;
 					}
@@ -205,7 +177,6 @@ export default function commitPlannerExtension(pi: ExtensionAPI) {
 						ctx.ui.setStatus(STATUS_KEY, `Planning commits for ${snapshot.units.length} change unit(s)...`);
 						plan = await planCommits(ctx, snapshot, {
 							feedbackHistory,
-							preferConventionalCommits,
 						});
 						continue;
 					}

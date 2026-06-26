@@ -32,9 +32,8 @@ export async function reviewPlanCustomUi(
 	ctx: ExtensionCommandContext,
 	plan: CommitPlan,
 	snapshot: RepoSnapshot,
-	options?: { preferConventionalCommits?: boolean },
 ): Promise<ReviewAction> {
-	const previewText = formatPlanPreview(plan, snapshot, options);
+	const previewText = formatPlanPreview(plan, snapshot);
 
 	return (
 		(await ctx.ui.custom<ReviewAction | undefined>((tui, theme, _kb, done) => {
@@ -55,9 +54,7 @@ export async function reviewPlanCustomUi(
 				{
 					value: "replan",
 					label: "2. Replan with feedback",
-					description: options?.preferConventionalCommits
-						? "Give feedback and keep the Conventional Commits preference."
-						: "Give feedback, including optional style requests like Conventional Commits.",
+					description: "Give feedback to revise the grouping while keeping Conventional Commits.",
 				},
 				{
 					value: "cancel",

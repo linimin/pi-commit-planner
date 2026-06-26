@@ -10,7 +10,6 @@ const MAX_FEEDBACK_CHARS = 4_000;
 export interface PlanCommitsOptions {
 	previousPlan?: CommitPlan;
 	feedbackHistory?: string[];
-	preferConventionalCommits?: boolean;
 }
 
 const SYSTEM_PROMPT = `You are pi-commit-planner, a careful Git commit planning assistant.
@@ -30,16 +29,17 @@ Rules:
       }
     ]
   }
+- Write every free-text field in English, including "summary" and every "why" value.
 - Every change ID must appear exactly once across all commits.
 - Never invent change IDs. Use only the provided IDs, copied exactly.
 - Some files are splittable into multiple hunk-level change IDs. Only split where multiple IDs are provided for the same file.
 - Prefer fewer commits over risky splitting. If uncertain, collapse changes into one commit.
 - If several change IDs from one file are tightly coupled, keep them in the same commit.
 - A deleted file plus a new file with similar content may represent a move or rename; keep them together when that seems right.
-- Commit messages must be one line, imperative, and concise. Keep them within 72 characters when practical.
-- If recent history shows a clear commit style, follow it unless the user explicitly asks to prefer Conventional Commits.
-- When the user explicitly prefers Conventional Commits, bias toward type(scope): subject or type: subject with a sensible type such as feat, fix, refactor, test, docs, chore, perf, build, or ci.
-- The "why" field should briefly justify the grouping for a human reviewer.`;
+- Every commit message must use Conventional Commits format: type(scope): subject or type: subject.
+- Use a concise imperative English subject with a sensible lowercase type such as feat, fix, refactor, test, docs, chore, perf, build, or ci.
+- Keep commit messages on one line and within 72 characters when practical.
+- The "why" field should briefly justify the grouping for a human reviewer in English.`;
 
 function buildUnitCatalog(units: ChangeUnit[]): string[] {
 	const lines = ["Allowed change IDs (must be covered exactly once):"];
@@ -51,16 +51,11 @@ function buildUnitCatalog(units: ChangeUnit[]): string[] {
 
 function buildReplanningContext(options?: PlanCommitsOptions): string[] {
 	const feedbackHistory = options?.feedbackHistory?.map((feedback) => feedback.trim()).filter(Boolean) ?? [];
-	if (!options?.previousPlan && feedbackHistory.length === 0 && !options?.preferConventionalCommits) {
+	if (!options?.previousPlan && feedbackHistory.length === 0) {
 		return [];
 	}
 
 	const lines: string[] = [];
-	if (options?.preferConventionalCommits) {
-		lines.push("Explicit style preference: prefer Conventional Commits for this plan.");
-		lines.push("Use `type(scope): subject` when a scope is helpful, otherwise `type: subject`.");
-		lines.push("");
-	}
 	lines.push("This is a replanning round.");
 	lines.push("Generate a NEW plan that incorporates the feedback while still covering every change ID exactly once.");
 	lines.push("Prefer the latest feedback most strongly, while keeping earlier non-conflicting feedback when possible.");
@@ -88,13 +83,15 @@ function buildPlanningPrompt(snapshot: RepoSnapshot, options?: PlanCommitsOption
 	const lines: string[] = [];
 	lines.push("Plan one or more commits for the current repository changes.");
 	lines.push("Treat the current staged and unstaged state as implementation detail; plan across ALL current changes.");
+	lines.push("Use Conventional Commits for every commit message: `type(scope): subject` or `type: subject`.");
+	lines.push("Write the plan summary and every why explanation in English.");
 	lines.push("");
 	lines.push(...buildReplanningContext(options));
 	lines.push(...buildUnitCatalog(snapshot.units));
 	lines.push("");
 
 	if (snapshot.recentCommitSubjects.length > 0) {
-		lines.push("Recent commit subjects (follow this style if it is clear):");
+		lines.push("Recent commit subjects (repository context only; keep Conventional Commits and English explanations):");
 		for (const subject of snapshot.recentCommitSubjects) {
 			lines.push(`- ${subject}`);
 		}
@@ -148,6 +145,10 @@ function buildRepairPrompt(errors: string[], snapshot: RepoSnapshot): string {
 		"Required schema:",
 		'{"summary": string, "commits": [{"message": string, "why": string, "changes": string[]}]}',
 		"",
+		"Additional requirements:",
+		"- Write summary and why fields in English.",
+		"- Every commit message must use Conventional Commits format: type(scope): subject or type: subject.",
+		"",
 		"Validation errors:",
 		...errors.map((error) => `- ${error}`),
 		"",
@@ -172,6 +173,10 @@ function parseRawPlan(rawText: string, unitIds: string[]): ValidationResult {
 	return validateCommitPlan(parsed, unitIds);
 }
 
+function isConventionalCommitMessage(message: string): boolean {
+	return /^[a-z]+(?:\([^)]+\))?!?:\s+\S.+$/.test(message);
+}
+
 function validatePlannedCommit(input: unknown, index: number): { commit?: PlannedCommit; errors: string[] } {
 	const prefix = `Commit ${index + 1}`;
 	if (!input || typeof input !== "object") {
@@ -186,8 +191,12 @@ function validatePlannedCommit(input: unknown, index: number): { commit?: Planne
 		: [];
 
 	const errors: string[] = [];
-	if (!message) errors.push(`${prefix} is missing a valid one-line message`);
-	if (!why) errors.push(`${prefix} is missing a why explanation`);
+	if (!message) {
+		errors.push(`${prefix} is missing a valid one-line message`);
+	} else if (!isConventionalCommitMessage(message)) {
+		errors.push(`${prefix} message must use Conventional Commits format: type(scope): subject or type: subject`);
+	}
+	if (!why) errors.push(`${prefix} is missing a why explanation in English`);
 	if (changes.length === 0) errors.push(`${prefix} must contain at least one change ID`);
 
 	if (errors.length > 0) return { errors };
@@ -331,20 +340,14 @@ export async function planCommits(
 	throw new Error(`Commit plan was invalid after retry:\n${validation.errors.join("\n")}`);
 }
 
-export function formatPlanPreview(
-	plan: CommitPlan,
-	snapshot: RepoSnapshot,
-	options?: { preferConventionalCommits?: boolean },
-): string {
+export function formatPlanPreview(plan: CommitPlan, snapshot: RepoSnapshot): string {
 	const unitMap = new Map(snapshot.units.map((unit) => [unit.id, unit]));
 	const lines: string[] = [];
 	lines.push(plan.summary);
+	lines.push("Commit style: Conventional Commits");
 	lines.push("Execution mode: mixed file-level + hunk-level grouping (v2)");
 	if (snapshot.partiallyStagedPaths.length > 0) {
 		lines.push(`Includes ${snapshot.partiallyStagedPaths.length} partially staged file(s).`);
-	}
-	if (options?.preferConventionalCommits) {
-		lines.push("Style preference: Conventional Commits");
 	}
 	lines.push("");
 
