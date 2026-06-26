@@ -12,6 +12,8 @@
 - single command: `/commit`
 - no manual staging required
 - AI plans **one or more commits** from all current tracked + untracked changes
+- all generated commit messages use **Conventional Commits**
+- plan summaries and grouping explanations are generated in **English**
 - confirmation is always required before Git is mutated
 - you can reject a proposed plan and give the planner natural-language feedback to replan
 - supports **mixed file-level + hunk-level grouping**
@@ -79,6 +81,7 @@ The extension will:
   - whole-file units for simple/non-splittable cases
   - hunk units for splittable modified text files
 - use the current pi model to generate a commit plan
+- always generate Conventional Commit messages plus English plan explanations
 - show the proposed commit messages and grouped change units
 - present a custom three-choice review UI:
   - apply the current plan
@@ -86,7 +89,6 @@ The extension will:
   - cancel
 - if you choose replan, let you either:
   - write custom feedback
-  - trigger a canned replan that prefers Conventional Commits
   - go back
 - create the commits if you accept
 
@@ -95,7 +97,7 @@ The extension will:
 The planner prompt includes:
 
 - exact change IDs that must be covered exactly once
-- recent commit subjects, so the model can mimic repository style
+- explicit instructions to use Conventional Commits and English explanations
 - per-file summaries
 - whole-file diffs/previews or per-hunk diffs
 
@@ -122,10 +124,9 @@ Examples:
 - reduce this to two commits
 - keep tests with implementation
 - separate the parser hunks
-- follow the recent conventional commit style more closely
+- split docs from refactors
 
-Inside the replan flow there is also a built-in quick action: **Prefer Conventional Commits**.
-That tells the planner to bias toward subjects like `feat(scope): ...`, `fix: ...`, `refactor(scope): ...`, and similar Conventional Commit forms.
+Commit messages will remain in Conventional Commits format, and plan explanations will remain in English across replans.
 
 The planner receives:
 
